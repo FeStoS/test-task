@@ -1,0 +1,82 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: auth_mysql
+    command: --default-authentication-plugin=mysql_native_password
+    environment:
+      MYSQL_DATABASE: authdb
+      MYSQL_USER: authuser
+      MYSQL_PASSWORD: secret
+      MYSQL_ROOT_PASSWORD: root
+    ports: ["3307:3306"]
+    volumes: [ "dbdata:/var/lib/mysql" ]
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1"]
+      interval: 5s
+      retries: 20
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: auth_backend
+    working_dir: /var/www
+    volumes:
+      - ./backend:/var/www
+    environment:
+      APP_ENV: local
+      APP_URL: http://localhost:8080
+      DB_CONNECTION: mysql
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_DATABASE: authdb
+      DB_USERNAME: authuser
+      DB_PASSWORD: secret
+      SESSION_DRIVER: cookie
+      SESSION_DOMAIN: localhost
+      SANCTUM_STATEFUL_DOMAINS: localhost:3000
+      LOG_CHANNEL: stack
+    depends_on: [ mysql ]
+
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: auth_nginx
+    ports: ["8080:80"]
+    volumes:
+      - ./backend:/var/www
+      - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on: [ backend ]
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: auth_frontend
+    working_dir: /usr/src/app
+    command: sh -lc "(npm ci || npm i) && npm run dev"
+    volumes:
+      - ./frontend:/usr/src/app
+      - /usr/src/app/node_modules
+    environment:
+      NUXT_PUBLIC_API_BASE: http://localhost:8080
+    ports: [ "3000:3000" ]
+
+    depends_on: [ nginx ]
+
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin:5.2
+    container_name: auth_phpmyadmin
+    environment:
+      PMA_HOST: mysql          # ім'я сервісу БД у docker-compose
+      PMA_PORT: 3306
+      UPLOAD_LIMIT: 256M
+      # (необов'язково) дозволити довільні хости у UI:
+      # PMA_ARBITRARY: 1
+    ports:
+      - "8081:80"              # UI буде на http://localhost:8081
+    depends_on:
+      - mysql
+
+
+volumes:
+  dbdata:
